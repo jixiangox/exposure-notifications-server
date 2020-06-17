@@ -33,7 +33,6 @@ import (
 
 	aamodel "github.com/google/exposure-notifications-server/internal/authorizedapp/model"
 	coredb "github.com/google/exposure-notifications-server/internal/database"
-	pubmodel "github.com/google/exposure-notifications-server/internal/publish/model"
 	"github.com/google/exposure-notifications-server/internal/verification/database"
 	"github.com/google/exposure-notifications-server/internal/verification/model"
 
@@ -132,8 +131,8 @@ func TestVerifyCertificate(t *testing.T) {
 			authApp.AllowedHealthAuthorityIDs[healthAuthority.ID] = struct{}{}
 
 			// Build a sample certificate.
-			publish := pubmodel.Publish{
-				Keys: []pubmodel.ExposureKey{
+			publish := verifyapi.Publish{
+				Keys: []verifyapi.ExposureKey{
 					{
 						Key:              "IRgYIhYiy4WMl9z68bMk6w==",
 						IntervalNumber:   2650032,
@@ -167,10 +166,10 @@ func TestVerifyCertificate(t *testing.T) {
 			claims.IssuedAt = time.Now().Add(tc.Warp).Unix()
 			claims.ExpiresAt = time.Now().Add(tc.Warp).Add(5 * time.Minute).Unix()
 			claims.SignedMAC = tc.MacAdjustment + base64.StdEncoding.EncodeToString(hmac) // would be generated on the client and passed through.
-			claims.KeyVersion = "v1"                                                      // matches the key configured above.
 			// leaves PHAClaims and transmission risk overrides out of it.
 
 			token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+			token.Header["kid"] = "v1" // matches the key configured above.
 			jwtText, err := token.SignedString(privateKey)
 			if err != nil {
 				t.Fatal(err)
@@ -181,7 +180,10 @@ func TestVerifyCertificate(t *testing.T) {
 			publish.HMACKey = tc.MacKeyAdjustment + hmacKeyB64
 
 			// Actually test the verify code.
-			verifier := New(haDB)
+			verifier, err := New(haDB, &Config{time.Nanosecond})
+			if err != nil {
+				t.Fatal(err)
+			}
 			overrides, err := verifier.VerifyDiagnosisCertificate(ctx, authApp, &publish)
 			if err != nil {
 				if !strings.Contains(err.Error(), tc.Error) {

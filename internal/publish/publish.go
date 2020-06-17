@@ -32,6 +32,7 @@ import (
 	"github.com/google/exposure-notifications-server/internal/serverenv"
 	"github.com/google/exposure-notifications-server/internal/verification"
 	verifydb "github.com/google/exposure-notifications-server/internal/verification/database"
+	verifyapi "github.com/google/exposure-notifications-server/pkg/api/v1alpha1"
 )
 
 // NewHandler creates the HTTP handler for the TTK publishing API.
@@ -45,7 +46,7 @@ func NewHandler(ctx context.Context, config *Config, env *serverenv.ServerEnv) (
 		return nil, fmt.Errorf("missing AuthorizedApp provider in server environment")
 	}
 
-	transformer, err := model.NewTransformer(config.MaxKeysOnPublish, config.MaxIntervalAge, config.TruncateWindow, config.DebugAllowRestOfDay)
+	transformer, err := model.NewTransformer(config.MaxKeysOnPublish, config.MaxIntervalAge, config.TruncateWindow, config.DebugReleaseSameDayKeys)
 	if err != nil {
 		return nil, fmt.Errorf("model.NewTransformer: %w", err)
 	}
@@ -53,13 +54,18 @@ func NewHandler(ctx context.Context, config *Config, env *serverenv.ServerEnv) (
 	logger.Infof("max interval start age: %v", config.MaxIntervalAge)
 	logger.Infof("truncate window: %v", config.TruncateWindow)
 
+	verifier, err := verification.New(verifydb.New(env.Database()), &config.Verification)
+	if err != nil {
+		return nil, fmt.Errorf("verification.New: %w", err)
+	}
+
 	return &publishHandler{
 		serverenv:             env,
 		transformer:           transformer,
 		config:                config,
 		database:              database.New(env.Database()),
 		authorizedAppProvider: env.AuthorizedAppProvider(),
-		verifier:              verification.New(verifydb.New(env.Database())),
+		verifier:              verifier,
 	}, nil
 }
 
@@ -87,11 +93,11 @@ func (h *publishHandler) handleRequest(w http.ResponseWriter, r *http.Request) r
 	logger := logging.FromContext(ctx)
 	metrics := h.serverenv.MetricsExporter(ctx)
 
-	var data model.Publish
+	var data verifyapi.Publish
 	code, err := jsonutil.Unmarshal(w, r, &data)
 	if err != nil {
 		// Log the unparsable JSON, but return success to the client.
-		message := fmt.Sprintf("error unmarshalling API call, code: %v: %v", code, err)
+		message := fmt.Sprintf("error unmarshaling API call, code: %v: %v", code, err)
 		logger.Error(message)
 		span.SetStatus(trace.Status{Code: trace.StatusCodeInternal, Message: message})
 		return response{status: http.StatusBadRequest, message: message, metric: "publish-bad-json", count: 1}
@@ -112,6 +118,8 @@ func (h *publishHandler) handleRequest(w http.ResponseWriter, r *http.Request) r
 		// A higher-level configuration error occurred, likely while trying to read
 		// from the database. This is retryable, although won't succeed if the error
 		// isn't transient.
+		// This message (and logging) will only contain the AppPkgName from the request
+		// and no other data from the request.
 		msg := fmt.Sprintf("no AuthorizedApp, dropping data: %v", err)
 		logger.Error(msg)
 		span.SetStatus(trace.Status{Code: trace.StatusCodeInternal, Message: msg})
@@ -155,11 +163,11 @@ func (h *publishHandler) handleRequest(w http.ResponseWriter, r *http.Request) r
 
 	// Apply overrides
 	if len(overrides) > 0 {
-		data.ApplyTransmissionRiskOverrides(overrides)
+		model.ApplyTransmissionRiskOverrides(&data, overrides)
 	}
 
 	batchTime := time.Now()
-	exposures, err := h.transformer.TransformPublish(&data, batchTime)
+	exposures, err := h.transformer.TransformPublish(ctx, &data, batchTime)
 	if err != nil {
 		message := fmt.Sprintf("unable to read request data: %v", err)
 		logger.Error(message)
@@ -215,6 +223,6 @@ func (h *publishHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Normal production behaviour. Success it up.
+	// Normal production behavior. Success it up.
 	w.WriteHeader(http.StatusOK)
 }

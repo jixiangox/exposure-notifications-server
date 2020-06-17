@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package database is a database interface to export.
 package database
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"math/rand"
 	"time"
@@ -118,13 +120,14 @@ func (db *ExportDB) GetAllExportConfigs(ctx context.Context) ([]*model.ExportCon
 		SELECT
 			config_id, bucket_name, filename_root, period_seconds, output_region, from_timestamp, thru_timestamp, signature_info_ids, input_regions
 		FROM
-			ExportConfig`)
+			ExportConfig
+		ORDER BY config_id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	results := []*model.ExportConfig{}
+	var results []*model.ExportConfig
 	for rows.Next() {
 		ec, err := scanOneExportConfig(rows)
 		if err != nil {
@@ -181,16 +184,23 @@ func (db *ExportDB) IterateExportConfigs(ctx context.Context, t time.Time, f fun
 func scanOneExportConfig(row pgx.Row) (*model.ExportConfig, error) {
 	var (
 		m             model.ExportConfig
+		outputRegion  sql.NullString
 		periodSeconds int
 		thru          *time.Time
 	)
-	if err := row.Scan(&m.ConfigID, &m.BucketName, &m.FilenameRoot, &periodSeconds, &m.OutputRegion, &m.From, &thru, &m.SignatureInfoIDs, &m.InputRegions); err != nil {
+	if err := row.Scan(&m.ConfigID, &m.BucketName, &m.FilenameRoot, &periodSeconds, &outputRegion, &m.From, &thru, &m.SignatureInfoIDs, &m.InputRegions); err != nil {
 		return nil, err
 	}
+
 	m.Period = time.Duration(periodSeconds) * time.Second
 	if thru != nil {
 		m.Thru = *thru
 	}
+
+	if outputRegion.Valid {
+		m.OutputRegion = outputRegion.String
+	}
+
 	return &m, nil
 }
 
@@ -207,11 +217,11 @@ func (db *ExportDB) AddSignatureInfo(ctx context.Context, si *model.SignatureInf
 		row := tx.QueryRow(ctx, `
 			INSERT INTO
  				SignatureInfo
-				(signing_key, app_package_name, bundle_id, signing_key_version, signing_key_id, thru_timestamp)
+				(signing_key, signing_key_version, signing_key_id, thru_timestamp)
 			VALUES
-				($1, LOWER($2), LOWER($3), $4, $5, $6)
+				($1, $2, $3, $4)
 			RETURNING id
-			`, si.SigningKey, si.AppPackageName, si.BundleID, si.SigningKeyVersion, si.SigningKeyID, thru)
+			`, si.SigningKey, si.SigningKeyVersion, si.SigningKeyID, thru)
 
 		if err := row.Scan(&si.ID); err != nil {
 			return fmt.Errorf("fetching id: %w", err)
@@ -229,11 +239,13 @@ func (db *ExportDB) UpdateSignatureInfo(ctx context.Context, si *model.Signature
 		result, err := tx.Exec(ctx, `
 			UPDATE SignatureInfo
 			SET
-				signing_key = $1, app_package_name = LOWER($2), bundle_id = LOWER($3),
-				signing_key_version = $4, signing_key_id = $5, thru_timestamp = $6
+				signing_key = $1,
+				signing_key_version = $2,
+				signing_key_id = $3,
+				thru_timestamp = $4
 			WHERE
-				id = $7
- 			`, si.SigningKey, si.AppPackageName, si.BundleID, si.SigningKeyVersion, si.SigningKeyID, thru, si.ID)
+				id = $5
+ 			`, si.SigningKey, si.SigningKeyVersion, si.SigningKeyID, thru, si.ID)
 		if err != nil {
 			return fmt.Errorf("updating signatureinfo: %w", err)
 		}
@@ -253,10 +265,10 @@ func (db *ExportDB) ListAllSigntureInfos(ctx context.Context) ([]*model.Signatur
 
 	rows, err := conn.Query(ctx, `
     SELECT
-      id, signing_key, LOWER(app_package_name), LOWER(bundle_id), signing_key_version, signing_key_id, thru_timestamp
+      id, signing_key, signing_key_version, signing_key_id, thru_timestamp
     FROM
       SignatureInfo
-    ORDER BY signing_key_id ASC, signing_key_version ASC, thru_timestamp DESC, LOWER(app_package_name) ASC, LOWER(bundle_id) ASC
+    ORDER BY signing_key_id ASC, signing_key_version ASC, thru_timestamp DESC
   `)
 	if err != nil {
 		return nil, err
@@ -286,7 +298,7 @@ func (db *ExportDB) LookupSignatureInfos(ctx context.Context, ids []int64, valid
 
 	rows, err := conn.Query(ctx, `
     SELECT
-      id, signing_key, LOWER(app_package_name), LOWER(bundle_id), signing_key_version, signing_key_id, thru_timestamp
+      id, signing_key, signing_key_version, signing_key_id, thru_timestamp
     FROM
       SignatureInfo
     WHERE
@@ -321,7 +333,7 @@ func (db *ExportDB) GetSignatureInfo(ctx context.Context, id int64) (*model.Sign
 
 	row := conn.QueryRow(ctx, `
 		SELECT
-			id, signing_key, LOWER(app_package_name), LOWER(bundle_id), signing_key_version, signing_key_id, thru_timestamp
+			id, signing_key, signing_key_version, signing_key_id, thru_timestamp
 		FROM
 			SignatureInfo
 		WHERE
@@ -334,7 +346,7 @@ func (db *ExportDB) GetSignatureInfo(ctx context.Context, id int64) (*model.Sign
 func scanOneSignatureInfo(row pgx.Row) (*model.SignatureInfo, error) {
 	var info model.SignatureInfo
 	var thru *time.Time
-	if err := row.Scan(&info.ID, &info.SigningKey, &info.AppPackageName, &info.BundleID, &info.SigningKeyVersion, &info.SigningKeyID, &thru); err != nil {
+	if err := row.Scan(&info.ID, &info.SigningKey, &info.SigningKeyVersion, &info.SigningKeyID, &thru); err != nil {
 		return nil, err
 	}
 	if thru != nil {
@@ -355,24 +367,63 @@ func (db *ExportDB) LatestExportBatchEnd(ctx context.Context, ec *model.ExportCo
 
 	row := conn.QueryRow(ctx, `
 		SELECT
-			end_timestamp
+			MAX(end_timestamp)
 		FROM
 			ExportBatch
 		WHERE
-		    config_id = $1
-		ORDER BY
-		    end_timestamp DESC
+			config_id = $1
 		LIMIT 1
 		`, ec.ConfigID)
 
-	var latestEnd time.Time
+	var latestEnd sql.NullTime
 	if err := row.Scan(&latestEnd); err != nil {
 		if err == pgx.ErrNoRows {
 			return time.Time{}, nil
 		}
 		return time.Time{}, fmt.Errorf("scanning result: %w", err)
 	}
-	return latestEnd, nil
+
+	if !latestEnd.Valid {
+		return time.Time{}, nil
+	}
+	return latestEnd.Time, nil
+}
+
+// ListLatestExportBatchEnds returns a map of export config IDs to their latest
+// batch end times.
+func (db *ExportDB) ListLatestExportBatchEnds(ctx context.Context) (map[int64]*time.Time, error) {
+	conn, err := db.db.Pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquiring connection: %w", err)
+	}
+	defer conn.Release()
+
+	rows, err := conn.Query(ctx, `
+		SELECT
+			config_id, MAX(end_timestamp)
+		FROM
+			ExportBatch
+		GROUP BY config_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+
+	m := make(map[int64]*time.Time)
+	for rows.Next() {
+		if rows.Err() != nil {
+			return nil, rows.Err()
+		}
+
+		var configID int64
+		var ts time.Time
+		if err := rows.Scan(&configID, &ts); err != nil {
+			return nil, err
+		}
+		m[configID] = &ts
+	}
+
+	return m, nil
 }
 
 // AddExportBatches inserts new export batches.
@@ -401,7 +452,7 @@ func (db *ExportDB) AddExportBatches(ctx context.Context, batches []*model.Expor
 }
 
 // LeaseBatch returns a leased ExportBatch for the worker to process. If no work to do, nil will be returned.
-func (db *ExportDB) LeaseBatch(ctx context.Context, ttl time.Duration, now time.Time) (*model.ExportBatch, error) {
+func (db *ExportDB) LeaseBatch(ctx context.Context, ttl time.Duration, batchMaxCloseTime time.Time) (*model.ExportBatch, error) {
 	// Lookup a set of candidate batch IDs.
 	var openBatchIDs []int64
 	err := func() error { // Use a func to allow defer conn.Release() to work.
@@ -427,7 +478,7 @@ func (db *ExportDB) LeaseBatch(ctx context.Context, ttl time.Duration, now time.
 			AND
 				end_timestamp < $3
 			LIMIT 100
-		`, model.ExportBatchOpen, model.ExportBatchPending, now)
+		`, model.ExportBatchOpen, model.ExportBatchPending, batchMaxCloseTime)
 		if err != nil {
 			return err
 		}
@@ -475,7 +526,7 @@ func (db *ExportDB) LeaseBatch(ctx context.Context, ttl time.Duration, now time.
 				return err
 			}
 
-			if status == model.ExportBatchComplete || (expires != nil && status == model.ExportBatchPending && now.Before(*expires)) {
+			if status == model.ExportBatchComplete || (expires != nil && status == model.ExportBatchPending && batchMaxCloseTime.Before(*expires)) {
 				// Something beat us to this batch, it's no longer available.
 				return nil
 			}
@@ -487,7 +538,7 @@ func (db *ExportDB) LeaseBatch(ctx context.Context, ttl time.Duration, now time.
 					status = $1, lease_expires = $2
 				WHERE
 				    batch_id = $3
-				`, model.ExportBatchPending, now.Add(ttl), bid)
+				`, model.ExportBatchPending, batchMaxCloseTime.Add(ttl), bid)
 			if err != nil {
 				return err
 			}

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package database is a database interface to publish.
 package database
 
 import (
@@ -22,10 +23,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/exposure-notifications-server/internal/base64util"
 	"github.com/google/exposure-notifications-server/internal/database"
 	"github.com/google/exposure-notifications-server/internal/logging"
 	"github.com/google/exposure-notifications-server/internal/publish/model"
+	"github.com/google/exposure-notifications-server/pkg/base64util"
 
 	pgx "github.com/jackc/pgx/v4"
 )

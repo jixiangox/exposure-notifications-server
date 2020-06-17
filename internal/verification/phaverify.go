@@ -23,11 +23,11 @@ import (
 	"fmt"
 
 	aamodel "github.com/google/exposure-notifications-server/internal/authorizedapp/model"
-	"github.com/google/exposure-notifications-server/internal/base64util"
-	pubmodel "github.com/google/exposure-notifications-server/internal/publish/model"
 	"github.com/google/exposure-notifications-server/internal/verification/database"
-
+	"github.com/google/exposure-notifications-server/internal/verification/model"
 	verifyapi "github.com/google/exposure-notifications-server/pkg/api/v1alpha1"
+	"github.com/google/exposure-notifications-server/pkg/base64util"
+	"github.com/google/exposure-notifications-server/pkg/cache"
 	utils "github.com/google/exposure-notifications-server/pkg/verification"
 
 	"github.com/dgrijalva/jwt-go"
@@ -35,18 +35,23 @@ import (
 
 // Verifier can be used to verify public health authority diagnosis verification certificates.
 type Verifier struct {
-	db *database.HealthAuthorityDB
+	db      *database.HealthAuthorityDB
+	haCache *cache.Cache
 }
 
 // New creates a new verifier, based on this DB handle.
-func New(db *database.HealthAuthorityDB) *Verifier {
-	return &Verifier{db}
+func New(db *database.HealthAuthorityDB, config *Config) (*Verifier, error) {
+	cache, err := cache.New(config.CacheDuration)
+	if err != nil {
+		return nil, err
+	}
+	return &Verifier{db, cache}, nil
 }
 
 // VerifyDiagnosisCertificate accepts a publish request (from which is extracts the JWT),
 // fully verifies the JWT and signture against what the passed in authorrized app is allowed
 // to use. Returns any transmission risk overrides if they are present.
-func (v *Verifier) VerifyDiagnosisCertificate(ctx context.Context, authApp *aamodel.AuthorizedApp, publish *pubmodel.Publish) (verifyapi.TransmissionRiskVector, error) {
+func (v *Verifier) VerifyDiagnosisCertificate(ctx context.Context, authApp *aamodel.AuthorizedApp, publish *verifyapi.Publish) (verifyapi.TransmissionRiskVector, error) {
 	// These get assigned during the ParseWithClaims closure.
 	var healthAuthorityID int64
 	var claims *verifyapi.VerificationClaims
@@ -58,27 +63,41 @@ func (v *Verifier) VerifyDiagnosisCertificate(ctx context.Context, authApp *aamo
 		}
 
 		var ok bool
+		kid, ok := token.Header[verifyapi.KeyIDHeader]
+		if !ok {
+			return nil, fmt.Errorf("missing required header field, 'kid' indicating key id")
+		}
+
 		claims, ok = token.Claims.(*verifyapi.VerificationClaims)
 		if !ok {
 			return nil, fmt.Errorf("does not contain expected claim set")
 		}
 
-		// Based on issuer, load the key versions.
-		ha, err := v.db.GetHealthAuthority(ctx, claims.Issuer)
-		if err != nil {
-			return nil, fmt.Errorf("error looking up issuer: %v : %w", claims.Issuer, err)
+		lookup := func() (interface{}, error) {
+			// Based on issuer, load the key versions.
+			ha, err := v.db.GetHealthAuthority(ctx, claims.Issuer)
+			if err != nil {
+				return nil, fmt.Errorf("error looking up issuer: %v : %w", claims.Issuer, err)
+			}
+			return ha, nil
 		}
+		cacheVal, err := v.haCache.WriteThruLookup(claims.Issuer, lookup)
+		if err != nil {
+			return nil, err
+		}
+
+		ha := cacheVal.(*model.HealthAuthority)
 
 		// Find a key version.
 		for _, hak := range ha.Keys {
 			// Key version matches and the key is valid based on the current time.
-			if hak.Version == claims.KeyVersion && hak.IsValid() {
+			if hak.Version == kid && hak.IsValid() {
 				healthAuthorityID = ha.ID
 				// Extract the public key from the PEM block.
 				return hak.PublicKey()
 			}
 		}
-		return nil, fmt.Errorf("key not found: iss: %v version: %v", claims.Issuer, claims.KeyVersion)
+		return nil, fmt.Errorf("key not found: iss: %v kid: %v", claims.Issuer, kid)
 	})
 	if err != nil {
 		return nil, err

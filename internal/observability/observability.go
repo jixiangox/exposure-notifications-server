@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package observability sets up and configures observability tools.
 package observability
 
 import (
@@ -70,7 +71,7 @@ func exporter() traceAndViewExporter {
 		// TODO: Add other trace and view exporters and break out of this.
 		return nil
 
-	case "OCAGENT":
+	case "OCAGENT", "PROMETHEUS":
 		oce, err := ocagent.NewExporter(ocagent.WithInsecure(), ocagent.WithAddress("localhost:55678"))
 		if err != nil {
 			panic(err)

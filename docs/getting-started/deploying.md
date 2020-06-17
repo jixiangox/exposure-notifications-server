@@ -1,3 +1,6 @@
+---
+layout: default
+---
 <!-- TOC depthFrom:2 depthTo:6 orderedList:false updateOnSave:true withLinks:true -->
 
 - [Before you begin](#before-you-begin)
@@ -64,7 +67,7 @@ See [Deploying with Terraform](https://github.com/google/exposure-notifications-
 
 While Terraform does an initial deployment of the services, it does not manage
 the Cloud Run services beyond their initial creation. If you make changes to the
-code, you will need to build, deploy, and promote new services. The general
+code, you need to build, deploy, and promote new services. The general
 order of operations is:
 
 1.  **Build** - this is the phase where the code is bundled into a container
@@ -87,7 +90,7 @@ following values:
     build, or "all" to build all. See the list of services in the table above.
 
 -   `TAG` (optional) - tag to use for the images. If not specified, it uses a
-    datetime-based tag of the format YYYYMMDDhhmmss.
+    git-sha-based short tag.
 
 ```text
 PROJECT_ID="my-project" \
@@ -110,7 +113,7 @@ specifying the following values:
     deploy, or "all" to deploy all. Note, if you specify multiple services, they
     must use the same tag.
 
--   `TAG` (required) - tag of the deployed image (e.g. YYYYMMDDhhmmss).
+-   `TAG` (required) - tag of the deployed image (e.g. abcd1234).
 
 ```text
 PROJECT_ID="my-project" \
@@ -156,7 +159,7 @@ To enable distributed tracing, please ensure your environment has these variable
 
 Variable|Values|Comment
 ---|---|---
-OBSERVABILITY_EXPORTER|If unset, no exporting shall be done. Use any of "stackdriver" or "ocagent" otherwise
+OBSERVABILITY_EXPORTER|If unset, no exporting shall be done. Use any of "stackdriver", "prometheus", or "ocagent" otherwise|Note: when using "prometheus" a METRICS_PORT environment variable should also be set
 PROJECT_ID|The ProjectID of your associated Google Cloud Platform project on which this application shall be deployed|Required if you use "stackdrver"
 
 ## Running migrations

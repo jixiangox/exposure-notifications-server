@@ -35,7 +35,6 @@ import (
 	"github.com/google/exposure-notifications-server/internal/authorizedapp"
 	aadb "github.com/google/exposure-notifications-server/internal/authorizedapp/database"
 	aamodel "github.com/google/exposure-notifications-server/internal/authorizedapp/model"
-	"github.com/google/exposure-notifications-server/internal/base64util"
 	coredb "github.com/google/exposure-notifications-server/internal/database"
 	pubdb "github.com/google/exposure-notifications-server/internal/publish/database"
 	"github.com/google/exposure-notifications-server/internal/publish/model"
@@ -43,6 +42,7 @@ import (
 	"github.com/google/exposure-notifications-server/internal/util"
 	verdb "github.com/google/exposure-notifications-server/internal/verification/database"
 	vermodel "github.com/google/exposure-notifications-server/internal/verification/model"
+	"github.com/google/exposure-notifications-server/pkg/base64util"
 
 	verifyapi "github.com/google/exposure-notifications-server/pkg/api/v1alpha1"
 	utils "github.com/google/exposure-notifications-server/pkg/verification"
@@ -84,7 +84,7 @@ func newSigningKey(t *testing.T) *signingKey {
 type jwtConfig struct {
 	HealthAuthority    *vermodel.HealthAuthority
 	HealthAuthorityKey *vermodel.HealthAuthorityKey
-	Publish            *model.Publish
+	Publish            *verifyapi.Publish
 	Key                *ecdsa.PrivateKey
 	JWTWarp            time.Duration
 	Overrides          verifyapi.TransmissionRiskVector
@@ -113,10 +113,10 @@ func issueJWT(t *testing.T, cfg jwtConfig) (jwtText, hmacKey string) {
 	claims.IssuedAt = time.Now().Add(cfg.JWTWarp).Unix()
 	claims.ExpiresAt = time.Now().Add(cfg.JWTWarp).Add(5 * time.Minute).Unix()
 	claims.SignedMAC = hmac
-	claims.KeyVersion = cfg.HealthAuthorityKey.Version
 	claims.TransmissionRisks = cfg.Overrides
 
 	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	token.Header[verifyapi.KeyIDHeader] = cfg.HealthAuthorityKey.Version
 	jwtText, err = token.SignedString(cfg.Key)
 	if err != nil {
 		t.Fatal(err)
@@ -134,7 +134,7 @@ func TestPublishWithBypass(t *testing.T) {
 		HealthAuthority    *vermodel.HealthAuthority    // Automatically linked to keys.
 		HealthAuthorityKey *vermodel.HealthAuthorityKey // Automatically linked to SigningKey
 		AuthorizedApp      *aamodel.AuthorizedApp       // Automatically linked to health authorities.
-		Publish            model.Publish
+		Publish            verifyapi.Publish
 		JWTTiming          time.Duration
 		Overrides          verifyapi.TransmissionRiskVector
 		WantTRAdjustment   []int
@@ -150,7 +150,7 @@ func TestPublishWithBypass(t *testing.T) {
 				authApp.AllowedRegions["US"] = struct{}{}
 				return authApp
 			}(),
-			Publish: model.Publish{
+			Publish: verifyapi.Publish{
 				Keys:           util.GenerateExposureKeys(2, 5, false),
 				Regions:        []string{"US"},
 				AppPackageName: "com.example.health",
@@ -172,7 +172,7 @@ func TestPublishWithBypass(t *testing.T) {
 				authApp.AllowedRegions["US"] = struct{}{}
 				return authApp
 			}(),
-			Publish: model.Publish{
+			Publish: verifyapi.Publish{
 				Keys:           util.GenerateExposureKeys(2, 5, false),
 				Regions:        []string{"US"},
 				AppPackageName: "com.example.health.WRONG",
@@ -189,7 +189,7 @@ func TestPublishWithBypass(t *testing.T) {
 				authApp.AllowedRegions["US"] = struct{}{}
 				return authApp
 			}(),
-			Publish: model.Publish{
+			Publish: verifyapi.Publish{
 				Keys:           util.GenerateExposureKeys(2, 5, false),
 				Regions:        []string{"CA"},
 				AppPackageName: "com.example.health",
@@ -205,7 +205,7 @@ func TestPublishWithBypass(t *testing.T) {
 				authApp.AllowedRegions["US"] = struct{}{}
 				return authApp
 			}(),
-			Publish: model.Publish{
+			Publish: verifyapi.Publish{
 				Keys:                util.GenerateExposureKeys(2, 5, false),
 				Regions:             []string{"US"},
 				AppPackageName:      "com.example.health",
@@ -232,7 +232,7 @@ func TestPublishWithBypass(t *testing.T) {
 				authApp.AllowedRegions["US"] = struct{}{}
 				return authApp
 			}(),
-			Publish: model.Publish{
+			Publish: verifyapi.Publish{
 				Keys:                util.GenerateExposureKeys(2, 5, false),
 				Regions:             []string{"US"},
 				AppPackageName:      "com.example.health",
@@ -258,7 +258,7 @@ func TestPublishWithBypass(t *testing.T) {
 				authApp.AllowedRegions["US"] = struct{}{}
 				return authApp
 			}(),
-			Publish: model.Publish{
+			Publish: verifyapi.Publish{
 				Keys:                util.GenerateExposureKeys(2, 5, false),
 				Regions:             []string{"US"},
 				AppPackageName:      "com.example.health",
@@ -291,7 +291,7 @@ func TestPublishWithBypass(t *testing.T) {
 				authApp.AllowedRegions["US"] = struct{}{}
 				return authApp
 			}(),
-			Publish: model.Publish{
+			Publish: verifyapi.Publish{
 				Keys:                util.GenerateExposureKeys(2, 5, false),
 				Regions:             []string{"US"},
 				AppPackageName:      "com.example.health",
@@ -319,7 +319,7 @@ func TestPublishWithBypass(t *testing.T) {
 				authApp.AllowedRegions["US"] = struct{}{}
 				return authApp
 			}(),
-			Publish: model.Publish{
+			Publish: verifyapi.Publish{
 				Keys:                util.GenerateExposureKeys(2, 5, false),
 				Regions:             []string{"US"},
 				AppPackageName:      "com.example.health",

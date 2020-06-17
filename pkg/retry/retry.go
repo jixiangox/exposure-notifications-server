@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package retry provides generic function-based retry helpers.
+//
+// Although exported, this package is non intended for general consumption.
+// It is a shared dependency between multiple exposure notifications projects.
+// We cannot guarantee that there won't be breaking changes in the future.
 package retry
 
 import (

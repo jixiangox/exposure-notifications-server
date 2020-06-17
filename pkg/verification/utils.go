@@ -12,6 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package verification provides verification utilities.
+//
+// This is provided as reference to application authors wishing to calculate
+// the exposure key HMAC as part of their exposure notifications mobile app.
+//
+// This protocol is detailed at
+// https://developers.google.com/android/exposure-notifications/verification-system
+//
+// Although exported, this package is non intended for general consumption.
+// It is a shared dependency between multiple exposure notifications projects.
+// We cannot guarantee that there won't be breaking changes in the future.
 package verification
 
 import (
@@ -21,12 +32,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/exposure-notifications-server/internal/publish/model"
+	verifyapi "github.com/google/exposure-notifications-server/pkg/api/v1alpha1"
 )
 
 // CalculateExposureKeyHMAC will calculate the verification protocol HMAC value.
 // Input keys are already to be base64 encoded. They will be sorted if necessary.
-func CalculateExposureKeyHMAC(keys []model.ExposureKey, secret []byte) ([]byte, error) {
+func CalculateExposureKeyHMAC(keys []verifyapi.ExposureKey, secret []byte) ([]byte, error) {
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("cannot calculate hmac on empty exposure keys")
 	}
