@@ -40,7 +40,7 @@ For full instructions on deploying, view the [deployment docs](../docs/getting-s
 
     This will open two authentication windows in your web browser.
 
-1.  Change into the `terraform/` directory. All future commands are run from the
+1.  Change into the `terraform/` directory where you clone the source from github (not the directory of terraform binary you downloaded) . All future commands are run from the
     `terraform/` directory:
 
     ```text
