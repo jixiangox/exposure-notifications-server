@@ -25,6 +25,7 @@ For full instructions on deploying, view the [deployment docs](../docs/getting-s
 
 1.  Create a GCP project.
     [Instructions](https://cloud.google.com/resource-manager/docs/creating-managing-projects).
+    (Do not use an existing one, it will fail when launching application while a running application) 
     Enable a billing account for this project, and note its project ID (the
     unique, unchangeable string that you will be asked for during creation):
 
