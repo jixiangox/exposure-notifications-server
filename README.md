@@ -43,7 +43,7 @@ You can read tutorials on deploying and using the reference Exposure Notificatio
 Server here:
 
 * [Overview](https://google.github.io/exposure-notifications-server/)
-* [Deployment Guide](https://google.github.io/exposure-notifications-server/getting-started/deploying)
+* [Deployment Guide](https://google.github.io/exposure-notifications-server/getting-started/deploying)(cloud_sql_proxy is required)
 * [Reference Documentation](https://pkg.go.dev/mod/github.com/google/exposure-notifications-server)
 * [Server Functional Requirements](https://google.github.io/exposure-notifications-server/server_functional_requirements)
 * [Server Deployment Options](https://google.github.io/exposure-notifications-server/server_deployment_options)
