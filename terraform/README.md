@@ -67,7 +67,7 @@ For full instructions on deploying, view the [deployment docs](../docs/getting-s
     Terraform or collaborating.
 
     ```text
-    $ gsutil mb -p ${PROJECT_ID} gs://${PROJECT_ID}-tf-state
+    $ gsutil mb -p ${PROJECT_ID} -l ASIA gs://${PROJECT_ID}-tf-state
     ```
 
     Configure Terraform to store state in the bucket:
