@@ -67,7 +67,7 @@ For full instructions on deploying, view the [deployment docs](../docs/getting-s
     Terraform or collaborating.
 
     ```text
-    $ gsutil mb -p ${PROJECT_ID} -l ASIA gs://${PROJECT_ID}-tf-state
+    $ gsutil mb -p ${PROJECT_ID} gs://${PROJECT_ID}-tf-state
     ```
 
     Configure Terraform to store state in the bucket:
@@ -125,10 +125,3 @@ Note that not all resources used by this project are currently available in all
 regions, but bringing up infrastructure in different regions needs careful
 consideration as geographic location of resources does impact service
 performance.
-
-Note that it is required to delete cloud storage in deployed region (e.g. us-central1 by default) and
-Create a Cloud Storage bucket in new region by command line
-
-```text
-    $ gsutil mb -p ${PROJECT_ID} gs://${PROJECT_ID}-tf-state
-```
